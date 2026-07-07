@@ -141,9 +141,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         reset() {
-            // Spawn inside launcher channel
+            // Spawn inside launcher channel, resting on bottom wall
             this.x = 482;
-            this.y = 700;
+            this.y = 715;
             this.vx = 0;
             this.vy = 0;
             this.active = true;
@@ -409,6 +409,8 @@ document.addEventListener('DOMContentLoaded', () => {
         walls.push(new Wall(460, 240, 460, 750, 'rgba(129, 140, 248, 0.45)', true));
         // Outer right wall
         walls.push(new Wall(500, 200, 500, 750));
+        // Launcher channel bottom wall to hold the ball at start
+        walls.push(new Wall(460, 725, 500, 725));
         
         // Bottom drains & side guides
         walls.push(new Wall(0, 540, 75, 610)); // Left outlane ramp
@@ -563,6 +565,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function resolveCollisions() {
         if (!ball.active) return;
 
+        // Exit launcher mode when ball rolls to the left of the separator
+        if (ball.inLauncher && ball.x < 458) {
+            ball.inLauncher = false;
+        }
+
         // 6-1. Outer walls collision
         walls.forEach(wall => {
             // Skip the launcher separator if the ball is inside launcher
@@ -572,11 +579,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const dist = vecDist(ball, closest);
             
             if (dist < ball.radius) {
-                // If ball passes left of the launcher wall separator, it exits launcher mode
-                if (wall.isLauncherSeparator && ball.vx < 0 && ball.x < wall.p1.x) {
-                    ball.inLauncher = false;
-                }
-
                 // Normal direction
                 const nx = (ball.x - closest.x) / (dist || 1);
                 const ny = (ball.y - closest.y) / (dist || 1);
@@ -711,7 +713,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // 6-6. Bottom drain hole (Dead zone)
+        // 6-6. One-way gate at the top of the launcher channel
+        if (!ball.inLauncher && ball.vy > 0 && ball.x > 458 && ball.y > 210 && ball.y < 240) {
+            ball.x = 448;
+            ball.vx = -Math.abs(ball.vx) - 2.5; // Deflect left into the playfield
+            ball.vy = -Math.abs(ball.vy) * 0.3;  // Bounce up slightly
+            sound.playRollover(); // Click sound
+        }
+
+        // 6-7. Bottom drain hole (Dead zone)
         if (ball.y > GAME_HEIGHT + 50) {
             ballsLeft--;
             updateUI();
