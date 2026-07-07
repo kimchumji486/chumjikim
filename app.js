@@ -1,959 +1,643 @@
-// Retro Space Pinball Engine
+// 알까기 (Al-kkagi) Game Engine
 
 document.addEventListener('DOMContentLoaded', () => {
-    // -----------------------------------------------------------------
-    // 1. Audio System (Web Audio API Synthesizer)
-    // -----------------------------------------------------------------
-    class SoundSynth {
+    // =================================================================
+    // 1. AUDIO
+    // =================================================================
+    class SFX {
         constructor() {
             this.ctx = null;
-            this.muted = false;
         }
-
         init() {
-            if (!this.ctx) {
-                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-            }
+            if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         }
-
-        playTone(freq, type, duration, volume = 0.1, sweepFreq = null) {
-            if (this.muted || !this.ctx) return;
-            
+        tone(freq, type, dur, vol = 0.1, sweep = null) {
+            if (!this.ctx) return;
             try {
-                // Resume if suspended
-                if (this.ctx.state === 'suspended') {
-                    this.ctx.resume();
-                }
-
-                const osc = this.ctx.createOscillator();
-                const gainNode = this.ctx.createGain();
-
-                osc.type = type;
-                osc.frequency.value = freq;
-
-                if (sweepFreq !== null) {
-                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(sweepFreq, this.ctx.currentTime + duration);
-                }
-
-                gainNode.gain.setValueAtTime(volume, this.ctx.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
-
-                osc.connect(gainNode);
-                gainNode.connect(this.ctx.destination);
-
-                osc.start();
-                osc.stop(this.ctx.currentTime + duration);
-            } catch (err) {
-                console.error("Audio error:", err);
-            }
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const o = this.ctx.createOscillator();
+                const g = this.ctx.createGain();
+                o.type = type; o.frequency.value = freq;
+                if (sweep) o.frequency.exponentialRampToValueAtTime(sweep, this.ctx.currentTime + dur);
+                g.gain.setValueAtTime(vol, this.ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + dur);
+                o.connect(g); g.connect(this.ctx.destination);
+                o.start(); o.stop(this.ctx.currentTime + dur);
+            } catch (e) {}
         }
-
-        playBumper() {
-            this.playTone(600, 'sine', 0.15, 0.15, 150);
-        }
-
-        playSlingshot() {
-            this.playTone(180, 'triangle', 0.1, 0.2, 80);
-        }
-
-        playLaunch(chargeRatio) {
-            this.playTone(100, 'sine', 0.4, 0.15, 100 + chargeRatio * 400);
-        }
-
-        playFlipper() {
-            this.playTone(350, 'triangle', 0.05, 0.05, 200);
-        }
-
-        playRollover() {
-            this.playTone(900, 'sine', 0.2, 0.1, 1200);
-        }
-
-        playGameOver() {
-            const now = this.ctx ? this.ctx.currentTime : 0;
-            const notes = [400, 300, 200, 150];
-            notes.forEach((freq, idx) => {
-                setTimeout(() => {
-                    this.playTone(freq, 'sawtooth', 0.3, 0.1, freq - 50);
-                }, idx * 250);
-            });
-        }
-
-        playGameStart() {
-            this.init();
-            const notes = [261.6, 329.6, 392.0, 523.3];
-            notes.forEach((freq, idx) => {
-                setTimeout(() => {
-                    this.playTone(freq, 'sine', 0.2, 0.15, freq + 100);
-                }, idx * 150);
-            });
-        }
+        hit()    { this.tone(200, 'triangle', 0.12, 0.15, 80); }
+        flick()  { this.tone(300, 'sine', 0.15, 0.1, 500); }
+        out()    { this.tone(120, 'sawtooth', 0.35, 0.12, 60); }
+        win()    { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.tone(f, 'sine', 0.25, 0.12), i * 150)); }
+        lose()   { [400, 300, 200, 150].forEach((f, i) => setTimeout(() => this.tone(f, 'sawtooth', 0.3, 0.1), i * 200)); }
     }
+    const sfx = new SFX();
 
-    const sound = new SoundSynth();
+    // =================================================================
+    // 2. CANVAS & CONSTANTS
+    // =================================================================
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+    const STONE_R = 22;
+    const FRICTION = 0.975;
+    const STOP_THRESHOLD = 0.15;
+    const BOARD_PAD = 8; // padding inside border for OOB detection
+    const MAX_POWER = 18;
 
-    // Sound toggle UI
-    const soundBtn = document.getElementById('btn-toggle-sound');
-    soundBtn.addEventListener('click', () => {
-        sound.init();
-        sound.muted = !sound.muted;
-        if (sound.muted) {
-            soundBtn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
-            soundBtn.style.color = '#ef4444';
-            soundBtn.style.borderColor = '#ef4444';
-        } else {
-            soundBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
-            soundBtn.style.color = '#94a3b8';
-            soundBtn.style.borderColor = 'rgba(255,255,255,0.15)';
-        }
+    // =================================================================
+    // 3. GAME STATE
+    // =================================================================
+    let gameState = 'intro'; // intro | playerTurn | aiTurn | animating | result
+    let difficulty = 'easy';
+    let stones = [];
+    let selectedStone = null;
+    let dragStart = null;
+    let dragCurrent = null;
+
+    // UI References
+    const introOverlay = document.getElementById('intro-overlay');
+    const resultOverlay = document.getElementById('result-overlay');
+    const resultTitle = document.getElementById('result-title');
+    const resultDesc = document.getElementById('result-desc');
+    const resultIcon = document.getElementById('result-icon');
+    const btnStart = document.getElementById('btn-start');
+    const btnRestart = document.getElementById('btn-restart');
+    const turnBadge = document.getElementById('turn-badge');
+    const turnText = document.getElementById('turn-text');
+    const playerStonesUI = document.getElementById('player-stones');
+    const aiStonesUI = document.getElementById('ai-stones');
+    const powerBarWrapper = document.getElementById('power-bar-wrapper');
+    const powerFill = document.getElementById('power-fill');
+
+    // Difficulty buttons
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            difficulty = btn.getAttribute('data-diff');
+        });
     });
 
-    // -----------------------------------------------------------------
-    // 2. Physics / Geometry Utilities
-    // -----------------------------------------------------------------
-    const vecDot = (v1, v2) => v1.x * v2.x + v1.y * v2.y;
-    const vecDist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
-    
-    // Line Segment collision utilities
-    function getClosestPointOnSegment(p, a, b) {
-        const ab = { x: b.x - a.x, y: b.y - a.y };
-        const ap = { x: p.x - a.x, y: p.y - a.y };
-        let t = vecDot(ap, ab) / vecDot(ab, ab);
-        t = Math.max(0, Math.min(1, t)); // Clamp to segment
-        return { x: a.x + t * ab.x, y: a.y + t * ab.y };
-    }
-
-    // -----------------------------------------------------------------
-    // 3. Canvas & Game Objects Setup
-    // -----------------------------------------------------------------
-    const canvas = document.getElementById('pinball-canvas');
-    const ctx = canvas.getContext('2d');
-    
-    const GAME_WIDTH = canvas.width;
-    const GAME_HEIGHT = canvas.height;
-    const GRAVITY = 0.16;
-    
-    // Physics Ball
-    class Ball {
-        constructor() {
-            this.radius = 10;
-            this.reset();
-        }
-
-        reset() {
-            // Spawn inside launcher channel, resting on bottom wall
-            this.x = 482;
-            this.y = 715;
+    // =================================================================
+    // 4. STONE CLASS
+    // =================================================================
+    class Stone {
+        constructor(x, y, team) {
+            this.x = x;
+            this.y = y;
             this.vx = 0;
             this.vy = 0;
-            this.active = true;
-            this.inLauncher = true;
+            this.r = STONE_R;
+            this.team = team; // 'player' or 'ai'
+            this.alive = true;
+        }
+
+        isMoving() {
+            return Math.abs(this.vx) > STOP_THRESHOLD || Math.abs(this.vy) > STOP_THRESHOLD;
         }
 
         update() {
-            if (!this.active) return;
-            
-            // Apply gravity
-            this.vy += GRAVITY;
-            
-            // Frictional damping
-            this.vx *= 0.998;
-            this.vy *= 0.998;
-            
-            // Move
+            if (!this.alive) return;
+
             this.x += this.vx;
             this.y += this.vy;
-            
-            // Speed Clamping (Prevent tunneling)
-            const speed = Math.hypot(this.vx, this.vy);
-            if (speed > 16) {
-                this.vx = (this.vx / speed) * 16;
-                this.vy = (this.vy / speed) * 16;
+
+            this.vx *= FRICTION;
+            this.vy *= FRICTION;
+
+            // Stop if very slow
+            if (Math.abs(this.vx) < STOP_THRESHOLD) this.vx = 0;
+            if (Math.abs(this.vy) < STOP_THRESHOLD) this.vy = 0;
+
+            // Out of bounds check
+            if (this.x < -this.r - BOARD_PAD || this.x > W + this.r + BOARD_PAD ||
+                this.y < -this.r - BOARD_PAD || this.y > H + this.r + BOARD_PAD) {
+                this.alive = false;
+                sfx.out();
             }
         }
 
         draw() {
-            if (!this.active) return;
-            
-            // Draw glowing core
+            if (!this.alive) return;
+
             ctx.save();
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = '#ffffff';
-            
-            // Draw ball with metallic gradient
+
+            // Shadow
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 3;
+
+            // Main body gradient
+            const isBlue = this.team === 'player';
+            const baseColor = isBlue ? '#3b82f6' : '#ef4444';
+            const lightColor = isBlue ? '#93c5fd' : '#fca5a5';
+            const darkColor = isBlue ? '#1e40af' : '#991b1b';
+
             const grad = ctx.createRadialGradient(
-                this.x - 3, this.y - 3, 2,
-                this.x, this.y, this.radius
+                this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.1,
+                this.x, this.y, this.r
             );
-            grad.addColorStop(0, '#ffffff');
-            grad.addColorStop(0.3, '#cbd5e1');
-            grad.addColorStop(1, '#475569');
-            
+            grad.addColorStop(0, lightColor);
+            grad.addColorStop(0.5, baseColor);
+            grad.addColorStop(1, darkColor);
+
             ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
             ctx.fill();
+
+            // Highlight (specular)
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            const specGrad = ctx.createRadialGradient(
+                this.x - this.r * 0.25, this.y - this.r * 0.25, 1,
+                this.x - this.r * 0.25, this.y - this.r * 0.25, this.r * 0.5
+            );
+            specGrad.addColorStop(0, 'rgba(255,255,255,0.5)');
+            specGrad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = specGrad;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+            ctx.fill();
+
             ctx.restore();
         }
     }
 
-    // Static Wall
-    class Wall {
-        constructor(x1, y1, x2, y2, color = 'rgba(129, 140, 248, 0.45)', isLauncherSeparator = false) {
-            this.p1 = { x: x1, y: y1 };
-            this.p2 = { x: x2, y: y2 };
-            this.color = color;
-            this.isLauncherSeparator = isLauncherSeparator;
+    // =================================================================
+    // 5. BOARD INITIALIZATION
+    // =================================================================
+    function initStones() {
+        stones = [];
+        // Player stones (bottom, blue)
+        const pY = H - 70;
+        const spacing = 70;
+        const startX = (W - spacing * 4) / 2;
+        for (let i = 0; i < 5; i++) {
+            stones.push(new Stone(startX + i * spacing, pY, 'player'));
         }
-
-        draw() {
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(this.p1.x, this.p1.y);
-            ctx.lineTo(this.p2.x, this.p2.y);
-            ctx.stroke();
-        }
-    }
-
-    // Circular Bumper
-    class Bumper {
-        constructor(x, y, radius, points, color = '#ec4899') {
-            this.x = x;
-            this.y = y;
-            this.radius = radius;
-            this.points = points;
-            this.color = color;
-            this.flashTimer = 0;
-        }
-
-        trigger() {
-            this.flashTimer = 8; // Flash duration in frames
-            sound.playBumper();
-        }
-
-        update() {
-            if (this.flashTimer > 0) this.flashTimer--;
-        }
-
-        draw() {
-            ctx.save();
-            const isFlashing = this.flashTimer > 0;
-            
-            ctx.shadowBlur = isFlashing ? 25 : 10;
-            ctx.shadowColor = this.color;
-            ctx.strokeStyle = isFlashing ? '#ffffff' : this.color;
-            ctx.lineWidth = isFlashing ? 5 : 3;
-            
-            // Draw Outer Ring
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-            ctx.stroke();
-
-            // Inner graphic
-            ctx.fillStyle = isFlashing ? '#ffffff' : 'rgba(236, 72, 153, 0.25)';
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius * 0.5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Draw points label inside
-            ctx.restore();
+        // AI stones (top, red)
+        const aY = 70;
+        for (let i = 0; i < 5; i++) {
+            stones.push(new Stone(startX + i * spacing, aY, 'ai'));
         }
     }
 
-    // Triangle Slingshot
-    class Slingshot {
-        constructor(x1, y1, x2, y2, x3, y3, isLeft) {
-            this.p1 = { x: x1, y: y1 };
-            this.p2 = { x: x2, y: y2 };
-            this.p3 = { x: x3, y: y3 };
-            this.isLeft = isLeft;
-            this.flashTimer = 0;
-        }
-
-        trigger() {
-            this.flashTimer = 8;
-            sound.playSlingshot();
-        }
-
-        update() {
-            if (this.flashTimer > 0) this.flashTimer--;
-        }
-
-        draw() {
-            ctx.save();
-            const isFlashing = this.flashTimer > 0;
-            const glowColor = '#06b6d4';
-            
-            ctx.shadowBlur = isFlashing ? 20 : 8;
-            ctx.shadowColor = glowColor;
-            ctx.fillStyle = isFlashing ? 'rgba(255, 255, 255, 0.4)' : 'rgba(6, 182, 212, 0.15)';
-            ctx.strokeStyle = isFlashing ? '#ffffff' : glowColor;
-            ctx.lineWidth = 3;
-
-            ctx.beginPath();
-            ctx.moveTo(this.p1.x, this.p1.y);
-            ctx.lineTo(this.p2.x, this.p2.y);
-            ctx.lineTo(this.p3.x, this.p3.y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            ctx.restore();
-        }
-    }
-
-    // Flipper (Left and Right)
-    class Flipper {
-        constructor(x, y, length, isLeft) {
-            this.pivot = { x, y };
-            this.length = length;
-            this.isLeft = isLeft;
-            
-            // Flipper rotation limits (radians)
-            this.restAngle = isLeft ? 0.52 : Math.PI - 0.52;
-            this.activeAngle = isLeft ? -0.5 : Math.PI + 0.5;
-            
-            this.angle = this.restAngle;
-            this.active = false;
-            this.radius = 8; // thickness radius
-            this.angularSpeed = 0.28; // angular velocity step
-        }
-
-        flip(pressed) {
-            this.active = pressed;
-            if (pressed && this.angle === this.restAngle) {
-                sound.playFlipper();
-            }
-        }
-
-        update() {
-            if (this.active) {
-                // Rotate up to active position
-                if (this.isLeft) {
-                    this.angle = Math.max(this.activeAngle, this.angle - this.angularSpeed);
-                } else {
-                    this.angle = Math.min(this.activeAngle, this.angle + this.angularSpeed);
-                }
-            } else {
-                // Fall back to rest position
-                if (this.isLeft) {
-                    this.angle = Math.min(this.restAngle, this.angle + this.angularSpeed * 0.7);
-                } else {
-                    this.angle = Math.max(this.restAngle, this.angle - this.angularSpeed * 0.7);
-                }
-            }
-        }
-
-        getTip() {
-            return {
-                x: this.pivot.x + Math.cos(this.angle) * this.length,
-                y: this.pivot.y + Math.sin(this.angle) * this.length
-            };
-        }
-
-        draw() {
-            const tip = this.getTip();
-            const glowColor = '#ec4899';
-
-            ctx.save();
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = glowColor;
-            ctx.strokeStyle = '#ffffff';
-            ctx.fillStyle = 'rgba(236, 72, 153, 0.7)';
-            ctx.lineWidth = this.radius * 2;
-            ctx.lineCap = 'round';
-
-            // Draw flipper blade
-            ctx.beginPath();
-            ctx.moveTo(this.pivot.x, this.pivot.y);
-            ctx.lineTo(tip.x, tip.y);
-            ctx.stroke();
-            
-            // Draw pivot point indicator
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(this.pivot.x, this.pivot.y, this.radius * 0.6, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // 4. Initializing Board Elements
-    // -----------------------------------------------------------------
-    const ball = new Ball();
-    const flippers = [
-        new Flipper(148, 660, 70, true),   // Left (wider spread)
-        new Flipper(312, 660, 70, false)   // Right (wider spread)
-    ];
-
-    const bumpers = [
-        new Bumper(160, 220, 24, 1000, '#a855f7'), // Top Left
-        new Bumper(300, 220, 24, 1000, '#06b6d4'), // Top Right
-        new Bumper(230, 310, 26, 1500, '#ec4899')  // Middle
-    ];
-
-    const slingshots = [
-        new Slingshot(75, 490, 115, 560, 75, 560, true), // Left
-        new Slingshot(385, 490, 345, 560, 385, 560, false) // Right
-    ];
-
-    // Static table walls defining boundaries
-    const walls = [];
-
-    function initWalls() {
-        // Table Boundaries
-        // Main left wall
-        walls.push(new Wall(0, 200, 0, 540));
-        // Outer Launcher separator (ends at y=240 to leave a 120px opening for ball entry)
-        walls.push(new Wall(460, 240, 460, 750, 'rgba(129, 140, 248, 0.45)', true));
-        // Outer right wall
-        walls.push(new Wall(500, 200, 500, 750));
-        // Launcher channel bottom wall to hold the ball at start
-        walls.push(new Wall(460, 725, 500, 725));
-        
-        // Bottom drains & side guides
-        walls.push(new Wall(0, 540, 75, 610)); // Left outlane ramp
-        walls.push(new Wall(460, 540, 385, 610)); // Right outlane ramp
-        
-        // Inlanes guides (shortened to end at slingshot bottom, not blocking the path to flippers)
-        walls.push(new Wall(110, 520, 110, 560)); // Left inlane guide
-        walls.push(new Wall(350, 520, 350, 560)); // Right inlane guide
-        
-        // Angle guides to flippers (lead to new wider flipper pivots)
-        walls.push(new Wall(75, 610, 140, 655)); // Left bottom ramp
-        walls.push(new Wall(385, 610, 320, 655)); // Right bottom ramp
-
-        // Top Curve Approximation (Widened to 500px to cover the launcher channel)
-        const steps = 16;
-        const cx = 250; // center x of top curve
-        const cy = 200; // center y
-        const rx = 250; // radius x
-        const ry = 200; // radius y
-        let lastPt = { x: 0, y: 200 };
-
-        for (let i = 1; i <= steps; i++) {
-            const angle = Math.PI + (i / steps) * Math.PI;
-            const px = cx + Math.cos(angle) * rx;
-            const py = cy + Math.sin(angle) * ry * 0.75;
-            walls.push(new Wall(lastPt.x, lastPt.y, px, py));
-            lastPt = { x: px, y: py };
-        }
-    }
-    
-    initWalls();
-
-    // 롤오버 레인 (Rollover Lanes)
-    class RolloverLane {
-        constructor(x, y, w, h, score, color = '#fbbf24') {
-            this.x = x;
-            this.y = y;
-            this.w = w;
-            this.h = h;
-            this.score = score;
-            this.color = color;
-            this.active = false;
-            this.cooldown = 0;
-        }
-
-        update() {
-            if (this.cooldown > 0) this.cooldown--;
-        }
-
-        checkCollision(b) {
-            if (this.cooldown === 0 && 
-                b.x > this.x && b.x < this.x + this.w &&
-                b.y > this.y && b.y < this.y + this.h) {
-                
-                this.active = !this.active;
-                this.cooldown = 30; // 0.5s cooldown
-                sound.playRollover();
-                return true;
-            }
-            return false;
-        }
-
-        draw() {
-            ctx.save();
-            ctx.shadowBlur = this.active ? 15 : 2;
-            ctx.shadowColor = this.color;
-            ctx.fillStyle = this.active ? this.color : 'rgba(251, 191, 36, 0.1)';
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = 2;
-            
-            ctx.beginPath();
-            ctx.roundRect(this.x, this.y, this.w, this.h, 6);
-            ctx.fill();
-            ctx.stroke();
-            ctx.restore();
-        }
-    }
-
-    const rollovers = [
-        new RolloverLane(120, 80, 25, 40, 2000), // Left Lane
-        new RolloverLane(215, 60, 25, 40, 2000), // Mid Lane
-        new RolloverLane(310, 80, 25, 40, 2000)  // Right Lane
-    ];
-
-    // -----------------------------------------------------------------
-    // 5. Game Loop & States
-    // -----------------------------------------------------------------
-    let score = 0;
-    let highScore = parseInt(localStorage.getItem('pinball_high_score')) || 50000;
-    let ballsLeft = 3;
-    let multiplier = 1;
-    let charge = 0;
-    let charging = false;
-    let gameState = 'intro'; // intro, playing, gameover
-
-    // UI elements update
-    const scoreVal = document.getElementById('score');
-    const highScoreVal = document.getElementById('high-score');
-    const ballCountVal = document.getElementById('ball-count');
-    const multiplierVal = document.getElementById('multiplier');
-
-    const introOverlay = document.getElementById('intro-overlay');
-    const gameoverOverlay = document.getElementById('gameover-overlay');
-    const btnStartGame = document.getElementById('btn-start-game');
-    const btnRestart = document.getElementById('btn-restart');
-    const finalScore = document.getElementById('final-score');
-
-    const updateUI = () => {
-        scoreVal.textContent = score.toLocaleString('ko-KR');
-        highScoreVal.textContent = highScore.toLocaleString('ko-KR');
-        ballCountVal.textContent = ballsLeft;
-        multiplierVal.textContent = `x${multiplier}`;
-    };
-
-    updateUI();
-
-    const addScore = (amount) => {
-        score += amount * multiplier;
-        if (score > highScore) {
-            highScore = score;
-            localStorage.setItem('pinball_high_score', highScore);
-        }
-        updateUI();
-    };
-
-    const startGame = () => {
-        sound.playGameStart();
-        score = 0;
-        ballsLeft = 3;
-        multiplier = 1;
-        gameState = 'playing';
-        ball.reset();
-        
-        introOverlay.classList.add('hidden');
-        gameoverOverlay.classList.add('hidden');
-        updateUI();
-    };
-
-    const gameOver = () => {
-        gameState = 'gameover';
-        sound.playGameOver();
-        finalScore.textContent = score.toLocaleString('ko-KR');
-        gameoverOverlay.classList.remove('hidden');
-    };
-
-    btnStartGame.addEventListener('click', startGame);
-    btnRestart.addEventListener('click', startGame);
-
-    // -----------------------------------------------------------------
-    // 6. Collision Resolution
-    // -----------------------------------------------------------------
+    // =================================================================
+    // 6. PHYSICS
+    // =================================================================
     function resolveCollisions() {
-        if (!ball.active) return;
+        const alive = stones.filter(s => s.alive);
+        for (let i = 0; i < alive.length; i++) {
+            for (let j = i + 1; j < alive.length; j++) {
+                const a = alive[i];
+                const b = alive[j];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const dist = Math.hypot(dx, dy);
+                const minDist = a.r + b.r;
 
-        // Exit launcher mode when ball rolls to the left of the separator
-        if (ball.inLauncher && ball.x < 458) {
-            ball.inLauncher = false;
+                if (dist < minDist && dist > 0) {
+                    sfx.hit();
+
+                    // Normal
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    // Relative velocity along normal
+                    const dvx = a.vx - b.vx;
+                    const dvy = a.vy - b.vy;
+                    const dvn = dvx * nx + dvy * ny;
+
+                    // Don't resolve if moving apart
+                    if (dvn < 0) continue;
+
+                    // Elastic collision (equal mass)
+                    const restitution = 0.9;
+                    const impulse = dvn * (1 + restitution) / 2;
+
+                    a.vx -= impulse * nx;
+                    a.vy -= impulse * ny;
+                    b.vx += impulse * nx;
+                    b.vy += impulse * ny;
+
+                    // Separate overlap
+                    const overlap = minDist - dist;
+                    a.x -= (overlap / 2) * nx;
+                    a.y -= (overlap / 2) * ny;
+                    b.x += (overlap / 2) * nx;
+                    b.y += (overlap / 2) * ny;
+                }
+            }
         }
+    }
 
-        // 6-1. Outer walls collision
-        walls.forEach(wall => {
-            // Skip the launcher separator if the ball is inside launcher
-            if (wall.isLauncherSeparator && ball.inLauncher) return;
-            
-            const closest = getClosestPointOnSegment(ball, wall.p1, wall.p2);
-            const dist = vecDist(ball, closest);
-            
-            if (dist < ball.radius) {
-                // Normal direction
-                const nx = (ball.x - closest.x) / (dist || 1);
-                const ny = (ball.y - closest.y) / (dist || 1);
-                
-                // Reposition ball outside wall
-                ball.x = closest.x + nx * ball.radius;
-                ball.y = closest.y + ny * ball.radius;
-                
-                // Reflect velocity
-                const normal = { x: nx, y: ny };
-                const dot = ball.vx * nx + ball.vy * ny;
-                
-                // Standard restitution
-                const restitution = 0.55; 
-                ball.vx = ball.vx - (1 + restitution) * dot * nx;
-                ball.vy = ball.vy - (1 + restitution) * dot * ny;
-            }
-        });
+    function anyMoving() {
+        return stones.some(s => s.alive && s.isMoving());
+    }
 
-        // 6-2. Circular bumpers collision
-        bumpers.forEach(bumper => {
-            const dist = vecDist(ball, bumper);
-            if (dist < ball.radius + bumper.radius) {
-                const nx = (ball.x - bumper.x) / dist;
-                const ny = (ball.y - bumper.y) / dist;
-                
-                // Reposition ball outside bumper
-                ball.x = bumper.x + nx * (ball.radius + bumper.radius);
-                ball.y = bumper.y + ny * (ball.radius + bumper.radius);
-                
-                // Elastic reflection with acceleration
-                const normal = { x: nx, y: ny };
-                const dot = ball.vx * nx + ball.vy * ny;
-                
-                // Add energy: bounciness 1.35
-                const pushBack = 1.35;
-                ball.vx = (ball.vx - (1 + pushBack) * dot * nx);
-                ball.vy = (ball.vy - (1 + pushBack) * dot * ny);
-                
-                bumper.trigger();
-                addScore(bumper.points);
-            }
-        });
+    // =================================================================
+    // 7. AI LOGIC
+    // =================================================================
+    function aiTurn() {
+        const aiStones = stones.filter(s => s.alive && s.team === 'ai');
+        const playerStones = stones.filter(s => s.alive && s.team === 'player');
 
-        // 6-3. Slingshots collision
-        slingshots.forEach(slingshot => {
-            // Collision between ball and triangle walls
-            const edges = [
-                { a: slingshot.p1, b: slingshot.p2 },
-                { a: slingshot.p2, b: slingshot.p3 },
-                { a: slingshot.p3, b: slingshot.p1 }
-            ];
+        if (aiStones.length === 0 || playerStones.length === 0) return;
 
-            edges.forEach(edge => {
-                const closest = getClosestPointOnSegment(ball, edge.a, edge.b);
-                const dist = vecDist(ball, closest);
-                
-                if (dist < ball.radius) {
-                    const nx = (ball.x - closest.x) / (dist || 1);
-                    const ny = (ball.y - closest.y) / (dist || 1);
-                    
-                    ball.x = closest.x + nx * ball.radius;
-                    ball.y = closest.y + ny * ball.radius;
-                    
-                    const normal = { x: nx, y: ny };
-                    const dot = ball.vx * nx + ball.vy * ny;
-                    
-                    // High kick restitution
-                    const kick = 1.45;
-                    ball.vx = ball.vx - (1 + kick) * dot * nx;
-                    ball.vy = ball.vy - (1 + kick) * dot * ny;
-                    
-                    slingshot.trigger();
-                    addScore(250);
+        let bestShooter = null;
+        let bestTarget = null;
+        let bestScore = -Infinity;
+
+        aiStones.forEach(shooter => {
+            playerStones.forEach(target => {
+                const dx = target.x - shooter.x;
+                const dy = target.y - shooter.y;
+                const dist = Math.hypot(dx, dy);
+
+                // Score: prefer close targets, targets near edge
+                let score = 1000 - dist;
+
+                // Bonus for targets near edges (easier to push out)
+                const edgeDist = Math.min(target.x, target.y, W - target.x, H - target.y);
+                score += (150 - edgeDist) * 2;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestShooter = shooter;
+                    bestTarget = target;
                 }
             });
         });
 
-        // 6-4. Flippers collision
-        flippers.forEach(flipper => {
-            const pivot = flipper.pivot;
-            const tip = flipper.getTip();
-            
-            const closest = getClosestPointOnSegment(ball, pivot, tip);
-            const dist = vecDist(ball, closest);
-            
-            if (dist < ball.radius + flipper.radius) {
-                const nx = (ball.x - closest.x) / dist;
-                const ny = (ball.y - closest.y) / dist;
-                
-                ball.x = closest.x + nx * (ball.radius + flipper.radius);
-                ball.y = closest.y + ny * (ball.radius + flipper.radius);
-                
-                const normal = { x: nx, y: ny };
-                const dot = ball.vx * nx + ball.vy * ny;
-                
-                // Calculate impact speed based on flipper motion
-                let impulse = 0.5; // default base restitution
-                
-                if (flipper.active) {
-                    // Check distance from pivot to determine linear velocity
-                    const distFromPivot = vecDist(closest, pivot);
-                    const speedRatio = distFromPivot / flipper.length;
-                    
-                    // Give linear push upwards depending on position of hitting the flipper
-                    impulse = 1.6 + speedRatio * 1.5;
-                    
-                    // Directly apply upward angular force vector
-                    const forceDirectionX = flipper.isLeft ? 0.3 : -0.3;
-                    ball.vx += forceDirectionX * impulse;
-                    ball.vy -= 4.0 * impulse;
-                }
-                
-                ball.vx = ball.vx - (1 + impulse) * dot * nx;
-                ball.vy = ball.vy - (1 + impulse) * dot * ny;
-            }
-        });
+        if (!bestShooter || !bestTarget) return;
 
-        // 6-5. Rollovers lane triggers
-        rollovers.forEach(lane => {
-            if (lane.checkCollision(ball)) {
-                addScore(lane.score);
-                
-                // Check if all rollover lanes are active
-                const allActive = rollovers.every(l => l.active);
-                if (allActive) {
-                    multiplier += 1;
-                    showToast(`MULTIPLIER INCREASED: x${multiplier}!`);
-                    // Reset lanes
-                    rollovers.forEach(l => l.active = false);
-                }
-            }
-        });
+        const dx = bestTarget.x - bestShooter.x;
+        const dy = bestTarget.y - bestShooter.y;
+        const dist = Math.hypot(dx, dy);
+        const nx = dx / dist;
+        const ny = dy / dist;
 
-        // 6-6. One-way gate at the top of the launcher channel
-        if (!ball.inLauncher && ball.vy > 0 && ball.x > 458 && ball.y > 210 && ball.y < 240) {
-            ball.x = 448;
-            ball.vx = -Math.abs(ball.vx) - 2.5; // Deflect left into the playfield
-            ball.vy = -Math.abs(ball.vy) * 0.3;  // Bounce up slightly
-            sound.playRollover(); // Click sound
+        // Power calculation based on difficulty and distance
+        let power;
+        let accuracy;
+        switch (difficulty) {
+            case 'easy':
+                power = Math.min(6 + dist * 0.02, 10);
+                accuracy = 0.25; // high inaccuracy
+                break;
+            case 'normal':
+                power = Math.min(8 + dist * 0.025, 13);
+                accuracy = 0.12;
+                break;
+            case 'hard':
+                power = Math.min(10 + dist * 0.03, MAX_POWER);
+                accuracy = 0.04; // very accurate
+                break;
+            default:
+                power = 8;
+                accuracy = 0.15;
         }
 
-        // 6-7. Bottom drain hole (Dead zone)
-        if (ball.y > GAME_HEIGHT + 50) {
-            ballsLeft--;
-            updateUI();
-            
-            if (ballsLeft > 0) {
-                ball.reset();
-                showToast('BALL LOST - READY PLUNGER');
-            } else {
-                gameOver();
-            }
+        // Add some randomness to aim
+        const angleOffset = (Math.random() - 0.5) * accuracy * Math.PI;
+        const cos = Math.cos(angleOffset);
+        const sin = Math.sin(angleOffset);
+        const aimX = nx * cos - ny * sin;
+        const aimY = nx * sin + ny * cos;
+
+        bestShooter.vx = aimX * power;
+        bestShooter.vy = aimY * power;
+
+        sfx.flick();
+    }
+
+    // =================================================================
+    // 8. UI UPDATES
+    // =================================================================
+    function updateUI() {
+        const pCount = stones.filter(s => s.alive && s.team === 'player').length;
+        const aCount = stones.filter(s => s.alive && s.team === 'ai').length;
+
+        playerStonesUI.textContent = '●'.repeat(pCount) + '○'.repeat(5 - pCount);
+        aiStonesUI.textContent = '●'.repeat(aCount) + '○'.repeat(5 - aCount);
+
+        if (gameState === 'playerTurn') {
+            turnText.textContent = '내 차례';
+            turnBadge.classList.remove('ai-turn');
+        } else if (gameState === 'aiTurn') {
+            turnText.textContent = '컴퓨터 차례';
+            turnBadge.classList.add('ai-turn');
+        } else if (gameState === 'animating') {
+            turnText.textContent = '이동 중...';
         }
     }
 
-    // -----------------------------------------------------------------
-    // 7. Inputs Handling
-    // -----------------------------------------------------------------
-    const activeKeys = {};
+    function checkWin() {
+        const pCount = stones.filter(s => s.alive && s.team === 'player').length;
+        const aCount = stones.filter(s => s.alive && s.team === 'ai').length;
 
-    window.addEventListener('keydown', (e) => {
-        const key = e.key.toLowerCase();
-        activeKeys[key] = true;
-
-        if (gameState === 'playing') {
-            // Left Flipper
-            if (key === 'z' || e.key === 'ArrowLeft') {
-                flippers[0].flip(true);
-            }
-            // Right Flipper
-            if (key === '/' || e.key === 'ArrowRight') {
-                flippers[1].flip(true);
-            }
-            // Launcher Charging
-            if (e.key === ' ' && ball.inLauncher) {
-                e.preventDefault();
-                charging = true;
-            }
-        } else if (gameState === 'intro' && e.key === ' ') {
-            e.preventDefault();
-            startGame();
+        if (aCount === 0) {
+            gameState = 'result';
+            resultIcon.textContent = '🏆';
+            resultTitle.textContent = '승리!';
+            resultDesc.textContent = `모든 상대 알을 밀어냈습니다! (남은 내 알: ${pCount}개)`;
+            resultOverlay.classList.remove('hidden');
+            sfx.win();
+            return true;
         }
-    });
-
-    window.addEventListener('keyup', (e) => {
-        const key = e.key.toLowerCase();
-        activeKeys[key] = false;
-
-        if (gameState === 'playing') {
-            if (key === 'z' || e.key === 'ArrowLeft') {
-                flippers[0].flip(false);
-            }
-            if (key === '/' || e.key === 'ArrowRight') {
-                flippers[1].flip(false);
-            }
-            
-            // Release Launcher
-            if (e.key === ' ' && charging) {
-                charging = false;
-                // Launch ball with upward vy proportional to charge duration
-                const launchForce = -6 - (charge * 1.5);
-                ball.vy = launchForce;
-                ball.vx = 0; // standard vertical launch
-                sound.playLaunch(charge);
-                charge = 0;
-            }
+        if (pCount === 0) {
+            gameState = 'result';
+            resultIcon.textContent = '😵';
+            resultTitle.textContent = '패배...';
+            resultDesc.textContent = '내 알이 모두 제거되었습니다. 다시 도전하세요!';
+            resultOverlay.classList.remove('hidden');
+            sfx.lose();
+            return true;
         }
-    });
+        return false;
+    }
 
-    // Mobile/Mouse tap controls for flippers (Left side screen click/Right side screen click)
-    canvas.addEventListener('touchstart', (e) => {
-        if (gameState !== 'playing') return;
-        e.preventDefault();
-        
-        const touch = e.touches[0];
+    // =================================================================
+    // 9. INPUT HANDLING
+    // =================================================================
+    function getCanvasPos(e) {
         const rect = canvas.getBoundingClientRect();
-        const touchX = touch.clientX - rect.left;
-        
-        if (touchX < rect.width / 2) {
-            flippers[0].flip(true);
-        } else {
-            flippers[1].flip(true);
-        }
-    });
-
-    canvas.addEventListener('touchend', (e) => {
-        if (gameState !== 'playing') return;
-        flippers[0].flip(false);
-        flippers[1].flip(false);
-    });
-
-    // Toast feedback function
-    const showToast = (msg) => {
-        const toast = document.createElement('div');
-        toast.className = 'game-toast';
-        toast.style.position = 'absolute';
-        toast.style.top = '15%';
-        toast.style.left = '50%';
-        toast.style.transform = 'translateX(-50%)';
-        toast.style.fontFamily = 'Press Start 2P';
-        toast.style.fontSize = '0.7rem';
-        toast.style.color = '#fbbf24';
-        toast.style.background = 'rgba(0,0,0,0.85)';
-        toast.style.border = '1px solid #fbbf24';
-        toast.style.padding = '8px 16px';
-        toast.style.borderRadius = '8px';
-        toast.style.zIndex = '100';
-        toast.style.pointerEvents = 'none';
-        toast.textContent = msg;
-
-        document.querySelector('.canvas-wrapper').appendChild(toast);
-        setTimeout(() => toast.remove(), 1800);
-    };
-
-    // -----------------------------------------------------------------
-    // 8. Renderer
-    // -----------------------------------------------------------------
-    function drawLauncherGauge() {
-        if (!ball.inLauncher) return;
-        
-        // Draw plunger gauge background
-        ctx.fillStyle = '#1e1b4b';
-        ctx.fillRect(475, 620, 14, 100);
-        
-        // Draw charge fill
-        const fillHeight = charge * 10;
-        const grad = ctx.createLinearGradient(475, 720, 475, 620);
-        grad.addColorStop(0, '#ef4444');
-        grad.addColorStop(0.5, '#fbbf24');
-        grad.addColorStop(1, '#10b981');
-        
-        ctx.fillStyle = grad;
-        ctx.fillRect(475, 720 - fillHeight, 14, fillHeight);
-        
-        // Draw border
-        ctx.strokeStyle = 'rgba(129, 140, 248, 0.4)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(475, 620, 14, 100);
+        const scaleX = W / rect.width;
+        const scaleY = H / rect.height;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
     }
 
-    function drawLanesDecoration() {
-        // Draw guides to rollover lanes
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    function onPointerDown(e) {
+        if (gameState !== 'playerTurn') return;
+        e.preventDefault();
+        const pos = getCanvasPos(e);
+
+        // Find player stone under cursor
+        const playerStones = stones.filter(s => s.alive && s.team === 'player');
+        for (const s of playerStones) {
+            const dist = Math.hypot(pos.x - s.x, pos.y - s.y);
+            if (dist < s.r + 5) {
+                selectedStone = s;
+                dragStart = { x: pos.x, y: pos.y };
+                dragCurrent = { x: pos.x, y: pos.y };
+                powerBarWrapper.classList.remove('hidden');
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
+        }
+    }
+
+    function onPointerMove(e) {
+        if (!selectedStone || gameState !== 'playerTurn') return;
+        e.preventDefault();
+        dragCurrent = getCanvasPos(e);
+
+        // Update power bar
+        const dx = dragStart.x - dragCurrent.x;
+        const dy = dragStart.y - dragCurrent.y;
+        const power = Math.min(Math.hypot(dx, dy) / 12, MAX_POWER);
+        const pct = (power / MAX_POWER) * 100;
+        powerFill.style.width = `${pct}%`;
+    }
+
+    function onPointerUp(e) {
+        if (!selectedStone || gameState !== 'playerTurn') return;
+        e.preventDefault();
+
+        const dx = dragStart.x - dragCurrent.x;
+        const dy = dragStart.y - dragCurrent.y;
+        const rawPower = Math.hypot(dx, dy) / 12;
+
+        if (rawPower < 0.5) {
+            // Too weak, cancel
+            selectedStone = null;
+            dragStart = null;
+            dragCurrent = null;
+            powerBarWrapper.classList.add('hidden');
+            canvas.style.cursor = 'default';
+            return;
+        }
+
+        const power = Math.min(rawPower, MAX_POWER);
+        const dist = Math.hypot(dx, dy);
+        selectedStone.vx = (dx / dist) * power;
+        selectedStone.vy = (dy / dist) * power;
+
+        sfx.flick();
+
+        selectedStone = null;
+        dragStart = null;
+        dragCurrent = null;
+        powerBarWrapper.classList.add('hidden');
+        canvas.style.cursor = 'default';
+        gameState = 'animating';
+        updateUI();
+    }
+
+    // Mouse
+    canvas.addEventListener('mousedown', onPointerDown);
+    canvas.addEventListener('mousemove', onPointerMove);
+    canvas.addEventListener('mouseup', onPointerUp);
+    // Touch
+    canvas.addEventListener('touchstart', onPointerDown, { passive: false });
+    canvas.addEventListener('touchmove', onPointerMove, { passive: false });
+    canvas.addEventListener('touchend', onPointerUp, { passive: false });
+
+    // Hover cursor for player stones
+    canvas.addEventListener('mousemove', (e) => {
+        if (gameState !== 'playerTurn' || selectedStone) return;
+        const pos = getCanvasPos(e);
+        const playerStones = stones.filter(s => s.alive && s.team === 'player');
+        const hovered = playerStones.some(s => Math.hypot(pos.x - s.x, pos.y - s.y) < s.r + 5);
+        canvas.style.cursor = hovered ? 'grab' : 'default';
+    });
+
+    // =================================================================
+    // 10. RENDERING
+    // =================================================================
+    function drawBoard() {
+        // Background wood color
+        ctx.fillStyle = '#c4973a';
+        ctx.fillRect(0, 0, W, H);
+
+        // Subtle wood grain lines
+        ctx.strokeStyle = 'rgba(139, 105, 20, 0.15)';
+        ctx.lineWidth = 1;
+        for (let y = 0; y < H; y += 12) {
+            ctx.beginPath();
+            ctx.moveTo(0, y + Math.sin(y * 0.1) * 3);
+            for (let x = 0; x < W; x += 10) {
+                ctx.lineTo(x, y + Math.sin((y + x) * 0.08) * 3);
+            }
+            ctx.stroke();
+        }
+
+        // Center decoration
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        // Lane guides
-        ctx.moveTo(110, 50); ctx.lineTo(110, 120);
-        ctx.moveTo(150, 50); ctx.lineTo(150, 120);
-        ctx.moveTo(205, 50); ctx.lineTo(205, 100);
-        ctx.moveTo(245, 50); ctx.lineTo(245, 100);
-        ctx.moveTo(300, 50); ctx.lineTo(300, 120);
-        ctx.moveTo(340, 50); ctx.lineTo(340, 120);
+        ctx.arc(W / 2, H / 2, 60, 0, Math.PI * 2);
         ctx.stroke();
-
-        // Neon outer lanes styling
-        ctx.save();
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#6366f1';
-        ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
-        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(75, 500); ctx.lineTo(110, 540);
-        ctx.moveTo(385, 500); ctx.lineTo(350, 540);
+        ctx.arc(W / 2, H / 2, 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        ctx.fill();
+
+        // Quadrant lines
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(W / 2, 0);
+        ctx.lineTo(W / 2, H);
+        ctx.moveTo(0, H / 2);
+        ctx.lineTo(W, H / 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Corner markers
+        const cornerSize = 20;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.lineWidth = 2;
+        [[0, 0], [W, 0], [0, H], [W, H]].forEach(([cx, cy]) => {
+            ctx.beginPath();
+            ctx.arc(cx, cy, cornerSize, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+    }
+
+    function drawAimLine() {
+        if (!selectedStone || !dragStart || !dragCurrent) return;
+
+        const dx = dragStart.x - dragCurrent.x;
+        const dy = dragStart.y - dragCurrent.y;
+        const power = Math.min(Math.hypot(dx, dy) / 12, MAX_POWER);
+
+        if (power < 0.5) return;
+
+        const dist = Math.hypot(dx, dy);
+        const nx = dx / dist;
+        const ny = dy / dist;
+
+        // Draw arrow line from stone in flick direction
+        const lineLen = power * 8;
+        const endX = selectedStone.x + nx * lineLen;
+        const endY = selectedStone.y + ny * lineLen;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(selectedStone.x, selectedStone.y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Arrow tip
+        const arrowSize = 10;
+        const angle = Math.atan2(ny, nx);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - arrowSize * Math.cos(angle - 0.4), endY - arrowSize * Math.sin(angle - 0.4));
+        ctx.lineTo(endX - arrowSize * Math.cos(angle + 0.4), endY - arrowSize * Math.sin(angle + 0.4));
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+
+        // Selection ring on the selected stone
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(selectedStone.x, selectedStone.y, selectedStone.r + 4, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
     }
 
     function render() {
-        // Clear board
-        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        drawBoard();
 
-        // Grid lines effect
-        ctx.strokeStyle = 'rgba(99, 102, 241, 0.04)';
-        ctx.lineWidth = 1;
-        const gridGap = 35;
-        for (let x = 0; x < GAME_WIDTH; x += gridGap) {
-            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GAME_HEIGHT); ctx.stroke();
-        }
-        for (let y = 0; y < GAME_HEIGHT; y += gridGap) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GAME_WIDTH, y); ctx.stroke();
-        }
+        // Draw stones
+        stones.forEach(s => s.draw());
 
-        // Draw Lanes Decoration
-        drawLanesDecoration();
-
-        // Draw Rollovers
-        rollovers.forEach(lane => lane.draw());
-
-        // Draw Bumpers
-        bumpers.forEach(bumper => bumper.draw());
-
-        // Draw Slingshots
-        slingshots.forEach(slingshot => slingshot.draw());
-
-        // Draw Flippers
-        flippers.forEach(flipper => flipper.draw());
-
-        // Draw Static Walls
-        walls.forEach(wall => wall.draw());
-
-        // Draw Launcher Plunger Charge Gauge
-        drawLauncherGauge();
-
-        // Draw Ball
-        ball.draw();
+        // Draw aim line
+        drawAimLine();
     }
 
-    // -----------------------------------------------------------------
-    // 9. Main Game Loop
-    // -----------------------------------------------------------------
+    // =================================================================
+    // 11. GAME LOOP
+    // =================================================================
+    let waitingForAI = false;
+    let aiDelayTimer = 0;
+
     function tick() {
-        if (gameState === 'playing') {
-            // Charge plunger
-            if (charging) {
-                charge = Math.min(10, charge + 0.15);
-            }
-            
-            // Update objects
-            ball.update();
-            flippers.forEach(f => f.update());
-            bumpers.forEach(b => b.update());
-            slingshots.forEach(s => s.update());
-            rollovers.forEach(l => l.update());
-            
-            // Handle Physics collisions
+        // Physics update
+        if (gameState === 'animating' || gameState === 'aiTurn') {
+            stones.forEach(s => s.update());
             resolveCollisions();
+
+            if (!anyMoving()) {
+                updateUI();
+
+                if (checkWin()) {
+                    // Game over
+                } else if (gameState === 'animating') {
+                    // Switch to AI turn after player's shot finishes
+                    if (stones.some(s => s.alive && s.team === 'ai')) {
+                        gameState = 'aiTurn';
+                        waitingForAI = true;
+                        aiDelayTimer = 50; // ~0.83s delay
+                        updateUI();
+                    }
+                } else if (gameState === 'aiTurn') {
+                    // AI turn finished, go to player turn
+                    gameState = 'playerTurn';
+                    updateUI();
+                }
+            }
         }
-        
-        // Draw Frame
+
+        // AI delay & execution
+        if (waitingForAI && gameState === 'aiTurn') {
+            aiDelayTimer--;
+            if (aiDelayTimer <= 0) {
+                waitingForAI = false;
+                aiTurn();
+            }
+        }
+
         render();
-        
         requestAnimationFrame(tick);
     }
 
-    // Kickoff Game Loop
+    // =================================================================
+    // 12. GAME START / RESTART
+    // =================================================================
+    function startGame() {
+        sfx.init();
+        initStones();
+        gameState = 'playerTurn';
+        introOverlay.classList.add('hidden');
+        resultOverlay.classList.add('hidden');
+        updateUI();
+    }
+
+    btnStart.addEventListener('click', startGame);
+    btnRestart.addEventListener('click', startGame);
+
+    // Kick off render loop
     requestAnimationFrame(tick);
 });
