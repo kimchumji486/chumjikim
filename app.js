@@ -416,9 +416,9 @@ document.addEventListener('DOMContentLoaded', () => {
         walls.push(new Wall(0, 540, 75, 610)); // Left outlane ramp
         walls.push(new Wall(460, 540, 385, 610)); // Right outlane ramp
         
-        // Inlanes guides
-        walls.push(new Wall(110, 520, 110, 610)); // Left inlane guide
-        walls.push(new Wall(350, 520, 350, 610)); // Right inlane guide
+        // Inlanes guides (shortened to end at slingshot bottom, not blocking the path to flippers)
+        walls.push(new Wall(110, 520, 110, 560)); // Left inlane guide
+        walls.push(new Wall(350, 520, 350, 560)); // Right inlane guide
         
         // Angle guides to flippers (adjusted to lead directly to flipper pivots, closing the 25px drain gaps)
         walls.push(new Wall(75, 610, 157, 655)); // Left bottom ramp
