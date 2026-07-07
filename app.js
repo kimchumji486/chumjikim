@@ -587,7 +587,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Reflect velocity
                 const normal = { x: nx, y: ny };
-                const dot = vecDot(ball, normal);
+                const dot = ball.vx * nx + ball.vy * ny;
                 
                 // Standard restitution
                 const restitution = 0.55; 
@@ -609,7 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Elastic reflection with acceleration
                 const normal = { x: nx, y: ny };
-                const dot = vecDot(ball, normal);
+                const dot = ball.vx * nx + ball.vy * ny;
                 
                 // Add energy: bounciness 1.35
                 const pushBack = 1.35;
@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ball.y = closest.y + ny * ball.radius;
                     
                     const normal = { x: nx, y: ny };
-                    const dot = vecDot(ball, normal);
+                    const dot = ball.vx * nx + ball.vy * ny;
                     
                     // High kick restitution
                     const kick = 1.45;
@@ -671,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ball.y = closest.y + ny * (ball.radius + flipper.radius);
                 
                 const normal = { x: nx, y: ny };
-                const dot = vecDot(ball, normal);
+                const dot = ball.vx * nx + ball.vy * ny;
                 
                 // Calculate impact speed based on flipper motion
                 let impulse = 0.5; // default base restitution
