@@ -420,9 +420,9 @@ document.addEventListener('DOMContentLoaded', () => {
         walls.push(new Wall(110, 520, 110, 610)); // Left inlane guide
         walls.push(new Wall(350, 520, 350, 610)); // Right inlane guide
         
-        // Angle guides to flippers
-        walls.push(new Wall(75, 610, 140, 680)); // Left bottom ramp
-        walls.push(new Wall(385, 610, 320, 680)); // Right bottom ramp
+        // Angle guides to flippers (adjusted to lead directly to flipper pivots, closing the 25px drain gaps)
+        walls.push(new Wall(75, 610, 157, 655)); // Left bottom ramp
+        walls.push(new Wall(385, 610, 303, 655)); // Right bottom ramp
 
         // Top Curve Approximation (Widened to 500px to cover the launcher channel)
         const steps = 16;
