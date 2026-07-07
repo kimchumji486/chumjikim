@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium Calc | 스마트 계산기</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <div class="background-decor">
+        <div class="circle circle-1"></div>
+        <div class="circle circle-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fa-solid fa-calculator logo-icon"></i>
+                <h1>Premium<span>Calc</span></h1>
+            </div>
+            <div class="header-actions">
+                <button id="btn-toggle-history" class="header-btn" title="계산 기록">
+                    <i class="fa-solid fa-history"></i>
+                </button>
+                <button id="theme-toggle" class="header-btn" title="화면 모드 전환">
+                    <i class="fa-solid fa-sun"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Calculator Layout -->
+        <main class="calculator-layout">
+            <!-- Calculator Card -->
+            <div class="calculator-card glass-card">
+                <div class="calc-screen">
+                    <div class="calc-formula" id="basic-formula"></div>
+                    <div class="calc-input" id="basic-input">0</div>
+                </div>
+                
+                <div class="calc-buttons">
+                    <!-- Row 1 -->
+                    <button class="btn-calc btn-utility" data-action="clear">AC</button>
+                    <button class="btn-calc btn-utility" data-action="toggle-sign">+/-</button>
+                    <button class="btn-calc btn-utility" data-action="percent">%</button>
+                    <button class="btn-calc btn-operator" data-action="divide">÷</button>
+
+                    <!-- Row 2 -->
+                    <button class="btn-calc" data-val="7">7</button>
+                    <button class="btn-calc" data-val="8">8</button>
+                    <button class="btn-calc" data-val="9">9</button>
+                    <button class="btn-calc btn-operator" data-action="multiply">×</button>
+
+                    <!-- Row 3 -->
+                    <button class="btn-calc" data-val="4">4</button>
+                    <button class="btn-calc" data-val="5">5</button>
+                    <button class="btn-calc" data-val="6">6</button>
+                    <button class="btn-calc btn-operator" data-action="subtract">-</button>
+
+                    <!-- Row 4 -->
+                    <button class="btn-calc" data-val="1">1</button>
+                    <button class="btn-calc" data-val="2">2</button>
+                    <button class="btn-calc" data-val="3">3</button>
+                    <button class="btn-calc btn-operator" data-action="add">+</button>
+
+                    <!-- Row 5 -->
+                    <button class="btn-calc" data-val="0">0</button>
+                    <button class="btn-calc" data-val=".">.</button>
+                    <button class="btn-calc btn-utility" data-action="backspace"><i class="fa-solid fa-backspace"></i></button>
+                    <button class="btn-calc btn-equals" id="btn-basic-equals">=</button>
+                </div>
+            </div>
+
+            <!-- History Sidebar (Collapsible) -->
+            <div class="history-sidebar glass-card" id="history-sidebar">
+                <div class="sidebar-header">
+                    <h3><i class="fa-solid fa-history"></i> 계산 기록</h3>
+                    <button id="btn-close-history" class="close-btn">&times;</button>
+                </div>
+                <div class="history-list" id="basic-history-list">
+                    <div class="empty-history">계산 기록이 없습니다.</div>
+                </div>
+                <button id="btn-clear-history" class="secondary-btn">
+                    <i class="fa-solid fa-trash-can"></i> 기록 전체 삭제
+                </button>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>&copy; 2026 PremiumCalc. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
