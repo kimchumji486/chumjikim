@@ -3,100 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retro Space Pinball | 추억의 3D 스페이스 핀볼</title>
-    <!-- Google Fonts -->
+    <title>알까기 | 컴퓨터 대전</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Outfit:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
-    <!-- Font Awesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="background-decor">
-        <div class="stars"></div>
-        <div class="nebula-1"></div>
-        <div class="nebula-2"></div>
+        <div class="grain"></div>
     </div>
 
     <div class="game-container">
-        <!-- Sidebar: Scoreboard -->
-        <aside class="scoreboard-panel glass-panel">
-            <div class="panel-header">
-                <h2>SPACE</h2>
-                <h3>CADET</h3>
-                <div class="sub-title">PINBALL</div>
+        <!-- Header -->
+        <header class="game-header">
+            <div class="logo">
+                <span class="stone-icon blue"></span>
+                <h1>알까기</h1>
+                <span class="stone-icon red"></span>
             </div>
+            <p class="subtitle">vs COMPUTER</p>
+        </header>
 
-            <div class="score-display">
-                <div class="score-label">SCORE</div>
-                <div class="score-val" id="score">000,000</div>
+        <!-- Score & Turn Info -->
+        <div class="info-bar">
+            <div class="player-info blue-side">
+                <div class="player-label">나 (파랑)</div>
+                <div class="player-stones" id="player-stones">●●●●●</div>
             </div>
-
-            <div class="score-display">
-                <div class="score-label">HIGH SCORE</div>
-                <div class="score-val" id="high-score">000,000</div>
+            <div class="turn-badge" id="turn-badge">
+                <span id="turn-text">내 차례</span>
             </div>
-
-            <div class="status-grid">
-                <div class="status-item">
-                    <div class="status-label">BALL</div>
-                    <div class="status-val" id="ball-count">3</div>
-                </div>
-                <div class="status-item">
-                    <div class="status-label">MULTIPLIER</div>
-                    <div class="status-val" id="multiplier">x1</div>
-                </div>
+            <div class="player-info red-side">
+                <div class="player-label">컴퓨터 (빨강)</div>
+                <div class="player-stones" id="ai-stones">●●●●●</div>
             </div>
+        </div>
 
-            <div class="controls-guide">
-                <h4>CONTROLS</h4>
-                <div class="control-row">
-                    <span class="key">Z</span> 또는 <span class="key">←</span>
-                    <span class="desc">좌측 플리퍼</span>
-                </div>
-                <div class="control-row">
-                    <span class="key">/</span> 또는 <span class="key">→</span>
-                    <span class="desc">우측 플리퍼</span>
-                </div>
-                <div class="control-row">
-                    <span class="key">Spacebar</span>
-                    <span class="desc">차지 / 볼 발사</span>
+        <!-- Game Board -->
+        <div class="board-wrapper">
+            <canvas id="game-canvas" width="600" height="500"></canvas>
+
+            <!-- Power Indicator -->
+            <div class="power-bar-wrapper hidden" id="power-bar-wrapper">
+                <div class="power-label">파워</div>
+                <div class="power-bar">
+                    <div class="power-fill" id="power-fill"></div>
                 </div>
             </div>
-            
-            <button id="btn-toggle-sound" class="sound-btn" title="사운드 켜기/끄기">
-                <i class="fa-solid fa-volume-high"></i>
-            </button>
-        </aside>
 
-        <!-- Main Board Area -->
-        <main class="board-area">
-            <div class="canvas-wrapper">
-                <canvas id="pinball-canvas" width="500" height="750"></canvas>
-
-                <!-- Overlay Screens -->
-                <div class="game-overlay" id="intro-overlay">
-                    <div class="overlay-content">
-                        <i class="fa-solid fa-shuttle-space rocket-icon animate-float"></i>
-                        <h1 class="blink-text">PRESS SPACE</h1>
-                        <p>스페이스바를 길게 눌러 런처를 차징하고 공을 쏘아 올리세요!</p>
-                        <button id="btn-start-game" class="retro-btn">GAME START</button>
+            <!-- Overlays -->
+            <div class="game-overlay" id="intro-overlay">
+                <div class="overlay-content">
+                    <div class="intro-stones">
+                        <span class="big-stone blue"></span>
+                        <span class="vs-text">VS</span>
+                        <span class="big-stone red"></span>
                     </div>
-                </div>
-
-                <div class="game-overlay hidden" id="gameover-overlay">
-                    <div class="overlay-content">
-                        <h2 class="gameover-title">GAME OVER</h2>
-                        <div class="final-score-box">
-                            <p>FINAL SCORE</p>
-                            <span id="final-score">000,000</span>
-                        </div>
-                        <button id="btn-restart" class="retro-btn">PLAY AGAIN</button>
+                    <h2>알까기 대전</h2>
+                    <p>내 알(파랑)을 드래그하여 상대 알(빨강)을 판 밖으로 밀어내세요!</p>
+                    <div class="difficulty-select">
+                        <button class="diff-btn active" data-diff="easy">쉬움</button>
+                        <button class="diff-btn" data-diff="normal">보통</button>
+                        <button class="diff-btn" data-diff="hard">어려움</button>
                     </div>
+                    <button id="btn-start" class="start-btn">게임 시작</button>
                 </div>
             </div>
-        </main>
+
+            <div class="game-overlay hidden" id="result-overlay">
+                <div class="overlay-content">
+                    <div class="result-icon" id="result-icon"></div>
+                    <h2 id="result-title">승리!</h2>
+                    <p id="result-desc">모든 상대 알을 밀어냈습니다!</p>
+                    <button id="btn-restart" class="start-btn">다시 하기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- How to play -->
+        <div class="how-to-play">
+            <div class="tip"><i class="fa-solid fa-hand-pointer"></i> 내 알(파랑)을 클릭한 채로 반대 방향으로 드래그</div>
+            <div class="tip"><i class="fa-solid fa-up-right-from-square"></i> 상대 알(빨강)을 판 밖으로 밀어내면 제거</div>
+            <div class="tip"><i class="fa-solid fa-skull-crossbones"></i> 내 알이 판 밖으로 나가도 잃으니 주의!</div>
+        </div>
+
+        <footer class="game-footer">
+            <p>&copy; 2026 알까기. All rights reserved.</p>
+        </footer>
     </div>
 
     <script src="app.js"></script>
