@@ -404,9 +404,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function initWalls() {
         // Table Boundaries
         // Main left wall
-        walls.push(new Wall(0, 150, 0, 540));
-        // Outer Launcher separator
-        walls.push(new Wall(460, 200, 460, 750, 'rgba(129, 140, 248, 0.45)', true));
+        walls.push(new Wall(0, 200, 0, 540));
+        // Outer Launcher separator (ends at y=240 to leave a 120px opening for ball entry)
+        walls.push(new Wall(460, 240, 460, 750, 'rgba(129, 140, 248, 0.45)', true));
         // Outer right wall
         walls.push(new Wall(500, 200, 500, 750));
         
@@ -422,11 +422,11 @@ document.addEventListener('DOMContentLoaded', () => {
         walls.push(new Wall(75, 610, 140, 680)); // Left bottom ramp
         walls.push(new Wall(385, 610, 320, 680)); // Right bottom ramp
 
-        // Top Curve Approximation
+        // Top Curve Approximation (Widened to 500px to cover the launcher channel)
         const steps = 16;
-        const cx = 230; // center x of top curve
+        const cx = 250; // center x of top curve
         const cy = 200; // center y
-        const rx = 230; // radius x
+        const rx = 250; // radius x
         const ry = 200; // radius y
         let lastPt = { x: 0, y: 200 };
 
@@ -437,9 +437,6 @@ document.addEventListener('DOMContentLoaded', () => {
             walls.push(new Wall(lastPt.x, lastPt.y, px, py));
             lastPt = { x: px, y: py };
         }
-        
-        // Connect top curve to launcher path
-        walls.push(new Wall(lastPt.x, lastPt.y, 460, 200));
     }
     
     initWalls();
