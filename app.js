@@ -310,8 +310,8 @@ document.addEventListener('DOMContentLoaded', () => {
             this.isLeft = isLeft;
             
             // Flipper rotation limits (radians)
-            this.restAngle = isLeft ? 0.45 : Math.PI - 0.45;
-            this.activeAngle = isLeft ? -0.45 : Math.PI + 0.45;
+            this.restAngle = isLeft ? 0.52 : Math.PI - 0.52;
+            this.activeAngle = isLeft ? -0.5 : Math.PI + 0.5;
             
             this.angle = this.restAngle;
             this.active = false;
@@ -383,8 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // -----------------------------------------------------------------
     const ball = new Ball();
     const flippers = [
-        new Flipper(165, 660, 68, true),   // Left
-        new Flipper(295, 660, 68, false)   // Right
+        new Flipper(148, 660, 70, true),   // Left (wider spread)
+        new Flipper(312, 660, 70, false)   // Right (wider spread)
     ];
 
     const bumpers = [
@@ -420,9 +420,9 @@ document.addEventListener('DOMContentLoaded', () => {
         walls.push(new Wall(110, 520, 110, 560)); // Left inlane guide
         walls.push(new Wall(350, 520, 350, 560)); // Right inlane guide
         
-        // Angle guides to flippers (adjusted to lead directly to flipper pivots, closing the 25px drain gaps)
-        walls.push(new Wall(75, 610, 157, 655)); // Left bottom ramp
-        walls.push(new Wall(385, 610, 303, 655)); // Right bottom ramp
+        // Angle guides to flippers (lead to new wider flipper pivots)
+        walls.push(new Wall(75, 610, 140, 655)); // Left bottom ramp
+        walls.push(new Wall(385, 610, 320, 655)); // Right bottom ramp
 
         // Top Curve Approximation (Widened to 500px to cover the launcher channel)
         const steps = 16;
